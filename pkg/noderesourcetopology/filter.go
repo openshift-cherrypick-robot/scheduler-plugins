@@ -59,8 +59,11 @@ func resMatchNUMANodes(numaNodes NUMANodeList, resources v1.ResourceList, qos v1
 	// set all bits, each bit is a NUMA node, if resources couldn't be aligned
 	// on the NUMA node, bit should be unset
 	bitmask.Fill()
+	nodeName := ""
+	if nd := nodeInfo.Node(); nd != nil {
+		nodeName = nd.Name
+	}
 
-	zeroQuantity := resource.MustParse("0")
 	for resource, quantity := range resources {
 		// for each requested resource, calculate which NUMA slots are good fits, and then AND with the aggregated bitmask, IOW unset appropriate bit if we can't align resources, or set it
 		// obvious, bits which are not in the NUMA id's range would be unset
@@ -71,29 +74,51 @@ func resMatchNUMANodes(numaNodes NUMANodeList, resources v1.ResourceList, qos v1
 			// if the resource can be found at the node itself, because there are resources which are not NUMA aligned
 			// or not supported by the topology exporter - if resource was not found at both checks - skip (don't set it as available NUMA node).
 			// if the un-found resource has 0 quantity probably this numa node can be considered.
-			if !ok && !resourceFoundOnNode(resource, quantity, nodeInfo) && quantity.Cmp(zeroQuantity) != 0 {
+			if !ok && !resourceFoundOnNode(resource, quantity, nodeInfo) && !quantity.IsZero() {
+				reason := "not found on NUMA cell, found on node"
+				klog.V(6).InfoS("discarded", "node", nodeName, "NUMA", numaNode.NUMAID, "resource", resource, "reason", reason)
 				continue
 			}
-			// Check for the following:
-			// 1. set numa node as possible node if resource is memory or Hugepages
-			// 2. set numa node as possible node if resource is cpu and it's not guaranteed QoS, since cpu will flow
-			// 3. set numa node as possible node if zero quantity for non existing resource was requested
-			// 4. otherwise check amount of resources
-			if resource == v1.ResourceMemory ||
-				strings.HasPrefix(string(resource), v1.ResourceHugePagesPrefix) ||
-				resource == v1.ResourceCPU && qos != v1.PodQOSGuaranteed ||
-				quantity.Cmp(zeroQuantity) == 0 ||
-				numaQuantity.Cmp(quantity) >= 0 {
-				// possible to align resources on NUMA node
-				resourceBitmask.Add(numaNode.NUMAID)
+
+			if numaOk, reason := isNUMANodeSuitable(qos, resource, quantity, numaQuantity); !numaOk {
+				klog.V(6).InfoS("discarded", "node", nodeName, "NUMA", numaNode.NUMAID, "resource", resource, "reason", reason)
+				continue
 			}
+
+			resourceBitmask.Add(numaNode.NUMAID)
+			klog.V(4).InfoS("feasible", "node", nodeName, "NUMA", numaNode.NUMAID, "resource", resource)
 		}
 		bitmask.And(resourceBitmask)
 		if bitmask.IsEmpty() {
+			klog.V(4).InfoS("early verdict", "node", nodeName, "suitable", "false")
 			return true
 		}
 	}
-	return bitmask.IsEmpty()
+	ret := bitmask.IsEmpty()
+	klog.V(4).InfoS("final verdict", "node", nodeName, "suitable", !ret)
+	return ret
+}
+
+func isNUMANodeSuitable(qos v1.PodQOSClass, resource v1.ResourceName, quantity, numaQuantity resource.Quantity) (bool, string) {
+	// Check for the following:
+
+	// 1. set numa node as possible node if resource is memory or Hugepages
+	if resource == v1.ResourceMemory || strings.HasPrefix(string(resource), v1.ResourceHugePagesPrefix) {
+		return true, "memory"
+	}
+	// 2. set numa node as possible node if resource is cpu and it's not guaranteed QoS, since cpu will flow
+	if resource == v1.ResourceCPU && qos != v1.PodQOSGuaranteed {
+		return true, "CPU non-exclusive"
+	}
+	// 3. set numa node as possible node if zero quantity for non existing resource was requested
+	if quantity.IsZero() {
+		return true, string(resource) + " zero quantity"
+	}
+	// 4. otherwise check amount of resources
+	if numaQuantity.Cmp(quantity) >= 0 {
+		return true, string(resource) + " allocatable"
+	}
+	return false, "generic rejection"
 }
 
 func singleNUMAPodLevelHandler(pod *v1.Pod, zones topologyv1alpha1.ZoneList, nodeInfo *framework.NodeInfo) *framework.Status {
