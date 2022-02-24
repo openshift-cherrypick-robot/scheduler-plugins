@@ -29,7 +29,6 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 
 	topologyv1alpha1 "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/apis/topology/v1alpha1"
-	"sigs.k8s.io/scheduler-plugins/pkg/util"
 )
 
 type PolicyHandler func(pod *v1.Pod, zoneMap topologyv1alpha1.ZoneList) *framework.Status
@@ -74,8 +73,8 @@ func resMatchNUMANodes(numaNodes NUMANodeList, resources v1.ResourceList, qos v1
 			// if the resource can be found at the node itself, because there are resources which are not NUMA aligned
 			// or not supported by the topology exporter - if resource was not found at both checks - skip (don't set it as available NUMA node).
 			// if the un-found resource has 0 quantity probably this numa node can be considered.
-			if !ok && !resourceFoundOnNode(resource, quantity, nodeInfo) && !quantity.IsZero() {
-				reason := "not found on NUMA cell, found on node"
+			if !ok && !quantity.IsZero() {
+				reason := "not found on NUMA cell"
 				klog.V(6).InfoS("discarded", "node", nodeName, "NUMA", numaNode.NUMAID, "resource", resource, "reason", reason)
 				continue
 			}
@@ -103,8 +102,11 @@ func isNUMANodeSuitable(qos v1.PodQOSClass, resource v1.ResourceName, quantity, 
 	// Check for the following:
 
 	// 1. set numa node as possible node if resource is memory or Hugepages
-	if resource == v1.ResourceMemory || strings.HasPrefix(string(resource), v1.ResourceHugePagesPrefix) {
+	if resource == v1.ResourceMemory && qos != v1.PodQOSGuaranteed {
 		return true, "memory"
+	}
+	if strings.HasPrefix(string(resource), v1.ResourceHugePagesPrefix) && qos != v1.PodQOSGuaranteed {
+		return true, "hugepages"
 	}
 	// 2. set numa node as possible node if resource is cpu and it's not guaranteed QoS, since cpu will flow
 	if resource == v1.ResourceCPU && qos != v1.PodQOSGuaranteed {
@@ -170,14 +172,4 @@ func (tm *TopologyMatch) Filter(ctx context.Context, cycleState *framework.Cycle
 		}
 	}
 	return nil
-}
-
-// resourceFoundOnNode checks whether a given resource exist at the node level
-// and whether the given quantity is big enough
-func resourceFoundOnNode(resName v1.ResourceName, wantQuantity resource.Quantity, nodeInfo *framework.NodeInfo) bool {
-	resourceList := util.ResourceList(nodeInfo.Allocatable)
-	if gotQuantity, ok := resourceList[resName]; ok {
-		return gotQuantity.Cmp(wantQuantity) >= 0
-	}
-	return false
 }
