@@ -316,12 +316,10 @@ func TestNodeResourceTopology(t *testing.T) {
 	for _, obj := range nodeTopologies {
 		fakeInformer.Informer().GetStore().Add(obj)
 	}
-	lister := fakeInformer.Lister()
 
 	tm := TopologyMatch{
-		lister:         lister,
 		policyHandlers: newPolicyHandlerMap(),
-		nrtCache:       PassthroughCache{lister: lister},
+		nrtCache:       PassthroughCache{lister: fakeInformer.Lister()},
 	}
 
 	for _, tt := range tests {
@@ -535,11 +533,9 @@ func TestNodeResourceTopologyMultiContainerPodScope(t *testing.T) {
 				fakeInformer.Informer().GetStore().Add(obj)
 			}
 
-			lister := fakeInformer.Lister()
 			tm := TopologyMatch{
-				lister:         lister,
 				policyHandlers: newPolicyHandlerMap(),
-				nrtCache:       PassthroughCache{lister: lister},
+				nrtCache:       PassthroughCache{lister: fakeInformer.Lister()},
 			}
 
 			nodeInfo := framework.NewNodeInfo()

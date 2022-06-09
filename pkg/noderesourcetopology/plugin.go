@@ -29,6 +29,12 @@ import (
 	topologyv1alpha1 "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/apis/topology/v1alpha1"
 )
 
+const (
+	// Name is the name of the plugin used in the plugin registry and configurations.
+	Name            = "NodeResourceTopologyMatch"
+	NodeNameIndexer = "nodeName"
+)
+
 type NUMANode struct {
 	NUMAID    int
 	Resources v1.ResourceList
@@ -70,11 +76,6 @@ var _ framework.ReservePlugin = &TopologyMatch{}
 var _ framework.ScorePlugin = &TopologyMatch{}
 var _ framework.EnqueueExtensions = &TopologyMatch{}
 
-const (
-	// Name is the name of the plugin used in the plugin registry and configurations.
-	Name = "NodeResourceTopologyMatch"
-)
-
 // Name returns name of the plugin. It is used in logs, etc.
 func (tm *TopologyMatch) Name() string {
 	return Name
@@ -88,12 +89,11 @@ func New(args runtime.Object, handle framework.Handle) (framework.Plugin, error)
 		return nil, fmt.Errorf("want args to be of type NodeResourceTopologyMatchArgs, got %T", args)
 	}
 
-	lister, err := initNodeTopologyInformer(handle.KubeConfig())
+	nrtCache, err := initNodeTopologyInformer(tcfg, handle)
 	if err != nil {
+		klog.ErrorS(err, "Cannot create clientset for NodeTopologyResource", "kubeConfig", handle.KubeConfig())
 		return nil, err
 	}
-
-	var nrtCache Cache = PassthroughCache{lister: lister}
 
 	scoringFunction, err := getScoringStrategyFunction(tcfg.ScoringStrategy.Type)
 	if err != nil {

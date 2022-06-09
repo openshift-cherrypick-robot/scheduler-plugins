@@ -20,22 +20,14 @@ import (
 	"context"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/klog/v2"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 )
 
 func (tm *TopologyMatch) Reserve(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) *framework.Status {
-	err := tm.nrtCache.ReserveNodeResources(nodeName, pod)
-	if err != nil {
-		klog.V(4).ErrorS(err, "reserving resources error", "node", nodeName, "podNamespace", pod.Namespace, "podName", pod.Name)
-	}
-	// errors intentionally not-critical
+	tm.nrtCache.ReserveNodeResources(nodeName, pod)
 	return framework.NewStatus(framework.Success, "")
 }
 
 func (tm *TopologyMatch) Unreserve(ctx context.Context, state *framework.CycleState, pod *corev1.Pod, nodeName string) {
-	err := tm.nrtCache.ReleaseNodeResources(nodeName, pod)
-	if err != nil {
-		klog.V(4).ErrorS(err, "reserving resources error", "node", nodeName, "podNamespace", pod.Namespace, "podName", pod.Name)
-	}
+	tm.nrtCache.ReleaseNodeResources(nodeName, pod)
 }

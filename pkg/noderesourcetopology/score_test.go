@@ -196,7 +196,6 @@ func TestNodeResourceScorePlugin(t *testing.T) {
 			}
 
 			tm := &TopologyMatch{
-				lister:         lister,
 				policyHandlers: newPolicyHandlerMap(),
 				scorerFn:       scoringFunction,
 				nrtCache:       PassthroughCache{lister: lister},

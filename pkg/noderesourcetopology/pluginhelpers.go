@@ -23,37 +23,59 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/dustin/go-humanize"
+	apiconfig "sigs.k8s.io/scheduler-plugins/apis/config"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	restclient "k8s.io/client-go/rest"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
+	"k8s.io/kubernetes/pkg/scheduler/framework"
 
 	topologyv1alpha1 "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/apis/topology/v1alpha1"
 	topoclientset "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/generated/clientset/versioned"
 	topologyinformers "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/generated/informers/externalversions"
-	listerv1alpha1 "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/generated/listers/topology/v1alpha1"
 )
 
-func initNodeTopologyInformer(kubeConfig *restclient.Config) (listerv1alpha1.NodeResourceTopologyLister, error) {
-	topoClient, err := topoclientset.NewForConfig(kubeConfig)
+func initNodeTopologyInformer(tcfg *apiconfig.NodeResourceTopologyMatchArgs, handle framework.Handle) (Cache, error) {
+	topoClient, err := topoclientset.NewForConfig(handle.KubeConfig())
 	if err != nil {
-		klog.ErrorS(err, "Cannot create clientset for NodeTopologyResource", "kubeConfig", kubeConfig)
+		klog.ErrorS(err, "Cannot create clientset for NodeTopologyResource", "kubeConfig", handle.KubeConfig())
 		return nil, err
 	}
 
 	topologyInformerFactory := topologyinformers.NewSharedInformerFactory(topoClient, 0)
 	nodeTopologyInformer := topologyInformerFactory.Topology().V1alpha1().NodeResourceTopologies()
-	nodeResourceTopologyLister := nodeTopologyInformer.Lister()
+	nodeTopologyLister := nodeTopologyInformer.Lister()
+
+	var nrtCache Cache = PassthroughCache{lister: nodeTopologyLister}
+	if tcfg.CacheResyncPeriodSeconds > 0 {
+		podInformer := handle.SharedInformerFactory().Core().V1().Pods()
+		podInformer.Informer().GetIndexer().AddIndexers(cache.Indexers{
+			NodeNameIndexer: indexByPodNodeName,
+		})
+
+		cache, err := newNRTCache(nodeTopologyLister, podInformer.Informer().GetIndexer())
+		if err != nil {
+			return nil, err
+		}
+
+		resyncPeriod := time.Duration(tcfg.CacheResyncPeriodSeconds) * time.Second
+		go wait.Forever(cache.Resync, resyncPeriod)
+		nrtCache = cache
+
+		klog.V(3).InfoS("enable NodeTopology cache (needs the Reserve plugin)", "resyncPeriod", resyncPeriod)
+	}
 
 	klog.V(5).InfoS("Start nodeTopologyInformer")
 	ctx := context.Background()
 	topologyInformerFactory.Start(ctx.Done())
 	topologyInformerFactory.WaitForCacheSync(ctx.Done())
 
-	return nodeResourceTopologyLister, nil
+	return nrtCache, nil
 }
 
 func createNUMANodeList(zones topologyv1alpha1.ZoneList) NUMANodeList {
