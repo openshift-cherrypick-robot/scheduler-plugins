@@ -37,16 +37,6 @@ import (
 	listerv1alpha1 "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/generated/listers/topology/v1alpha1"
 )
 
-func findNodeTopology(nodeName string, lister listerv1alpha1.NodeResourceTopologyLister) *topologyv1alpha1.NodeResourceTopology {
-	klog.V(5).InfoS("Lister for nodeResTopoPlugin", "lister", lister)
-	nodeTopology, err := lister.Get(nodeName)
-	if err != nil {
-		klog.V(5).ErrorS(err, "Cannot get NodeTopologies from NodeResourceTopologyLister")
-		return nil
-	}
-	return nodeTopology
-}
-
 func initNodeTopologyInformer(kubeConfig *restclient.Config) (listerv1alpha1.NodeResourceTopologyLister, error) {
 	topoClient, err := topoclientset.NewForConfig(kubeConfig)
 	if err != nil {

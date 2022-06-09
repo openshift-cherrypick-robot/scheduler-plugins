@@ -199,6 +199,7 @@ func TestNodeResourceScorePlugin(t *testing.T) {
 				lister:         lister,
 				policyHandlers: newPolicyHandlerMap(),
 				scorerFn:       scoringFunction,
+				nrtCache:       PassthroughCache{lister: lister},
 			}
 
 			for _, req := range test.requests {

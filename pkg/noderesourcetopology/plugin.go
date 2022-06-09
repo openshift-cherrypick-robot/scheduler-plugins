@@ -25,9 +25,8 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	apiconfig "sigs.k8s.io/scheduler-plugins/apis/config"
 
-	"github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/apis/topology"
+	topologyapi "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/apis/topology"
 	topologyv1alpha1 "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/apis/topology/v1alpha1"
-	listerv1alpha1 "github.com/k8stopologyawareschedwg/noderesourcetopology-api/pkg/generated/listers/topology/v1alpha1"
 )
 
 type NUMANode struct {
@@ -60,13 +59,14 @@ type PolicyHandlerMap map[topologyv1alpha1.TopologyManagerPolicy]tmScopeHandler
 
 // TopologyMatch plugin which run simplified version of TopologyManager's admit handler
 type TopologyMatch struct {
-	lister              listerv1alpha1.NodeResourceTopologyLister
 	policyHandlers      PolicyHandlerMap
 	scorerFn            scoreStrategy
 	resourceToWeightMap resourceToWeightMap
+	nrtCache            Cache
 }
 
 var _ framework.FilterPlugin = &TopologyMatch{}
+var _ framework.ReservePlugin = &TopologyMatch{}
 var _ framework.ScorePlugin = &TopologyMatch{}
 var _ framework.EnqueueExtensions = &TopologyMatch{}
 
@@ -87,10 +87,13 @@ func New(args runtime.Object, handle framework.Handle) (framework.Plugin, error)
 	if !ok {
 		return nil, fmt.Errorf("want args to be of type NodeResourceTopologyMatchArgs, got %T", args)
 	}
+
 	lister, err := initNodeTopologyInformer(handle.KubeConfig())
 	if err != nil {
 		return nil, err
 	}
+
+	var nrtCache Cache = PassthroughCache{lister: lister}
 
 	scoringFunction, err := getScoringStrategyFunction(tcfg.ScoringStrategy.Type)
 	if err != nil {
@@ -103,10 +106,10 @@ func New(args runtime.Object, handle framework.Handle) (framework.Plugin, error)
 	}
 
 	topologyMatch := &TopologyMatch{
-		lister:              lister,
 		policyHandlers:      newPolicyHandlerMap(),
 		scorerFn:            scoringFunction,
 		resourceToWeightMap: resToWeightMap,
+		nrtCache:            nrtCache,
 	}
 
 	return topologyMatch, nil
