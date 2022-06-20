@@ -89,6 +89,10 @@ func New(args runtime.Object, handle framework.Handle) (framework.Plugin, error)
 		return nil, fmt.Errorf("want args to be of type NodeResourceTopologyMatchArgs, got %T", args)
 	}
 
+	cacheResync := 10
+	klog.InfoS("forcing cache resync period", "from", tcfg.CacheResyncPeriodSeconds, "to", cacheResync)
+	tcfg.CacheResyncPeriodSeconds = int64(cacheResync)
+
 	nrtCache, err := initNodeTopologyInformer(tcfg, handle)
 	if err != nil {
 		klog.ErrorS(err, "Cannot create clientset for NodeTopologyResource", "kubeConfig", handle.KubeConfig())
